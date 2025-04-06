@@ -6,16 +6,42 @@ import gspread
 import matplotlib.pyplot as plt
 from oauth2client.service_account import ServiceAccountCredentials
 
+# Access credentials from Streamlit secrets manager
+client_email = st.secrets["google"]["client_email"]
+private_key = st.secrets["google"]["private_key"]
+project_id = st.secrets["google"]["project_id"]
+
 # Define the scope of permissions we need for our script to access Google Sheets
 scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
 # Authenticate and create a client using our credentials file
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+#creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+#client = gspread.authorize(creds)
+
+# Construct the credentials dictionary (simulating the structure of a JSON key file)
+creds_dict = {
+    "type": "service_account",
+    "project_id": project_id,
+    "private_key_id": None,  # You can leave this out if you're not using a key file ID
+    "private_key": private_key.replace('\\n', '\n'),  # Ensure the private key is formatted correctly
+    "client_email": client_email,
+    "client_id": None,  # You can leave this out if you're not using a client ID
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "client_x509_cert_url": None,  # You can leave this out if you're not using a certificate URL
+}
+
+# Create the credentials object from the dictionary
+creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+# Authenticate the client using the credentials
 client = gspread.authorize(creds)
+
 
 # Open the Google Sheet by its URL
 sheet_url = "https://docs.google.com/spreadsheets/d/1w4suUrGjIhfn_ufYhHJqgYE9V32GEvoCSBgcanjdwms/edit?gid=0#gid=0"
 spreadsheet = client.open_by_url(sheet_url)
+
 
 # Select the first worksheet in the spreadsheet
 worksheet = spreadsheet.sheet1
@@ -138,16 +164,16 @@ if not selected_property.empty:
     # Extract the URL from the selected property
     property_url = selected_property["url"].values[0]  # Get the URL of the selected property
     
-    # Concatenate 'https://www.zillow.com' to the beginning of the URL if the URL exists
-    if pd.notnull(property_url):
-        full_url = f"https://www.zillow.com{property_url}"
-        # Create a clickable link using Markdown
+    # Concatenate 'https://www.zillow.com' to the beginning of the URL
+    full_url = f"https://www.zillow.com{property_url}" if pd.notnull(property_url) else None
+    
+    # Create a clickable link using Markdown
+    if full_url:
         st.markdown(f"[View Property on Zillow]({full_url})")
     else:
         st.warning("No valid URL available for this property.")
 else:
     st.warning("No property selected or no matching property found.")
-
 
 
 # MAP: Tooltip config

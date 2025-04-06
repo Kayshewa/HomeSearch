@@ -1,0 +1,4 @@
+# Ignore credentials file
+credentials.json
+
+.streamlit/secrets.toml
