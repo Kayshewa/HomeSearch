@@ -2,6 +2,6 @@ requests
 pandas
 streamlit
 pydeck
-gspread==6.0
+gspread==5.0.0
 matplotlib.pyplot
 oauth2client.service_account
