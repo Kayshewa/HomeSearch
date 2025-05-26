@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "../centralenv"
+		},
+		{
+			"path": "../stock"
+		},
+		{
+			"path": "."
+		}
+	]
+}

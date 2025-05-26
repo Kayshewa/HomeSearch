@@ -51,7 +51,7 @@ worksheet = spreadsheet.sheet1
 existing_data = pd.DataFrame(worksheet.get_all_records())
 
 # Title
-st.title("Kayshewa and Tripi's Final House Explorer")
+st.title("Kayshewa and Tripi's Final House Explorer Test")
 
 
 # Sidebar Filters
