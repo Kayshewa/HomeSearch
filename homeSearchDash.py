@@ -1,3 +1,9 @@
+#Reminders for future Kayshewa - THIS IS THE LATEST 5/26
+#git add "pls commit"
+#git push
+
+#NEXT STEP: INTEGRATE TEMP WEALTH DASHBOARD > HOMESEARCH.IPYNB into UI (add ZPID)
+
 import requests
 import pandas as pd
 import streamlit as st
