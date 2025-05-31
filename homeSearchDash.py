@@ -1,7 +1,7 @@
 #Reminders for future Kayshewa - THIS IS THE LATEST 5/26
 #git add .
 #git commit -m "pls commit"
-#git push
+#git push origin master
 
 #NEXT STEP: INTEGRATE TEMP WEALTH DASHBOARD > HOMESEARCH.IPYNB into UI (add ZPID)
 
@@ -10,6 +10,7 @@
 import requests
 import pandas as pd
 import gspread
+import toml
 from oauth2client.service_account import ServiceAccountCredentials
 
 def fetch_and_update_zillow_data(zpid: str, sheet_url: str):
@@ -65,11 +66,22 @@ def fetch_and_update_zillow_data(zpid: str, sheet_url: str):
         return
 
     print(shortdf)
+    
+    # 5.1. Load secrets from secrets.toml
+    secrets = toml.load(".streamlit/secrets.toml")  # adjust the path if necessary
 
-    # 5. Authenticate with Google Sheets API
+    # 5.2. Extract Google credentials
+    google_creds = secrets["google"]
+
+    # 5.3. Define the scope
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+
+    # 5.4. Authenticate using the credentials dictionary
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(google_creds, scope)
+
+    # 5.5. Authorize the client
     client = gspread.authorize(creds)
+
 
     # 6. Open the target sheet and read existing data
     spreadsheet = client.open_by_url(sheet_url)
