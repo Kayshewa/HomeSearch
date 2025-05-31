@@ -66,7 +66,7 @@ def fetch_and_update_zillow_data(zpid: str, sheet_url: str):
         return
 
     print(shortdf)
-    
+
     # 5.1. Load secrets from secrets.toml
     secrets = toml.load(".streamlit/secrets.toml")  # adjust the path if necessary
 
@@ -159,7 +159,7 @@ worksheet = spreadsheet.sheet1
 existing_data = pd.DataFrame(worksheet.get_all_records())
 
 # Title
-st.title("Kayshewa and Tripi's Final House Explorer v2")
+st.title("Kayshewa and Tripi's Final House Explorer v3")
 
 
 st.subheader("🔄 Add New Zillow Property by ZPID")
