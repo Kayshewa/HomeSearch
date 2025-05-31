@@ -1,8 +1,98 @@
 #Reminders for future Kayshewa - THIS IS THE LATEST 5/26
-#git add "pls commit"
+#git add .
+#git commit -m "pls commit"
 #git push
 
 #NEXT STEP: INTEGRATE TEMP WEALTH DASHBOARD > HOMESEARCH.IPYNB into UI (add ZPID)
+
+#Function to call to add new zillow ZPID to Google Sheet:
+
+import requests
+import pandas as pd
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+
+def fetch_and_update_zillow_data(zpid: str, sheet_url: str):
+    # 1. Fetch data from Zillow API
+    url = "https://zillow-com1.p.rapidapi.com/property"
+    querystring = {"zpid": zpid}
+    headers = {
+        "x-rapidapi-key": "287c0c69cbmsh41c226a35114322p1022a8jsn65498208884c",
+        "x-rapidapi-host": "zillow-com1.p.rapidapi.com"
+    }
+    response = requests.get(url, headers=headers, params=querystring)
+    data = response.json()
+
+    # 2. Flatten the JSON response
+    def flatten_json(y):
+        out = {}
+        def flatten(x, name=''):
+            if type(x) is dict:
+                for a in x:
+                    flatten(x[a], name + a + '_')
+            elif type(x) is list:
+                for i, a in enumerate(x):
+                    flatten(a, name + str(i) + '_')
+            else:
+                out[name[:-1]] = x
+        flatten(y)
+        return out
+
+    flat_data = flatten_json(data)
+    df = pd.DataFrame([flat_data])
+
+    # 3. Save column names to CSV
+    column_names = list(df.columns)
+    pd.DataFrame(column_names).to_csv("zillowattributes.csv", index=False, header=["Column Name"])
+
+    # 4. Extract a subset of relevant columns
+    try:
+        shortdf = df[[
+            'zpid', 'streetAddress', 'monthlyHoaFee', 'yearBuilt', 'latitude', 'longitude', 'livingAreaValue',
+            'climate_floodSources_primary_insuranceRecommendation', 'climate_floodSources_primary_riskScore_label',
+            'climate_floodSources_primary_riskScore_value', 'rentZestimate', 'propertyTaxRate', 'timeOnZillow',
+            'url', 'zestimate', 'bedrooms', 'bathrooms', 'zipcode', 'price', 'homeStatus', 'imgSrc',
+            'annualHomeownersInsurance', 'priceHistory_0_date', 'priceHistory_0_event', 'priceHistory_0_price',
+            'priceHistory_1_date', 'priceHistory_1_event', 'priceHistory_1_price', 'priceHistory_2_date',
+            'priceHistory_2_event', 'priceHistory_2_price', 'priceHistory_3_date', 'priceHistory_3_event',
+            'priceHistory_3_price', 'priceHistory_4_date', 'priceHistory_4_event', 'priceHistory_4_price',
+            'priceHistory_5_date', 'priceHistory_5_event', 'priceHistory_5_price', 'schools_0_link',
+            'schools_0_rating', 'schools_0_name', 'schools_1_link', 'schools_1_rating', 'schools_1_name',
+            'homeType', 'resoFacts_taxAssessedValue'
+        ]]
+    except KeyError as e:
+        print(f"Missing key in data: {e}")
+        return
+
+    print(shortdf)
+
+    # 5. Authenticate with Google Sheets API
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+    client = gspread.authorize(creds)
+
+    # 6. Open the target sheet and read existing data
+    spreadsheet = client.open_by_url(sheet_url)
+    worksheet = spreadsheet.sheet1
+    expected_headers = shortdf.columns.tolist()
+
+    existing_data = pd.DataFrame(worksheet.get_all_records(expected_headers=expected_headers))
+
+    # 7. Append new data if zpid not already present
+    shortdf['zpid'] = shortdf['zpid'].astype(str)
+    if 'zpid' not in existing_data.columns:
+        worksheet.append_rows([shortdf.iloc[0].astype(str).tolist()], value_input_option='USER_ENTERED')
+    elif shortdf['zpid'].values[0] not in existing_data['zpid'].astype(str).values:
+        worksheet.append_rows([shortdf.iloc[0].astype(str).tolist()], value_input_option='USER_ENTERED')
+
+# Example usage:
+# fetch_and_update_zillow_data("27760224", "https://docs.google.com/spreadsheets/d/1w4suUrGjIhfn_ufYhHJqgYE9V32GEvoCSBgcanjdwms/edit?gid=0#gid=0")
+
+
+
+
+#The Streamlit UI
+
 
 import requests
 import pandas as pd
@@ -58,6 +148,24 @@ existing_data = pd.DataFrame(worksheet.get_all_records())
 
 # Title
 st.title("Kayshewa and Tripi's Final House Explorer")
+
+
+st.subheader("🔄 Add New Zillow Property by ZPID")
+
+# Input box to enter ZPID
+zpid_input = st.text_input("Enter ZPID:")
+
+# Button to trigger data fetch and update
+if st.button("Fetch and Add Property"):
+    if zpid_input.strip() == "":
+        st.warning("Please enter a valid ZPID.")
+    else:
+        try:
+            fetch_and_update_zillow_data(zpid_input.strip(), sheet_url)
+            st.success(f"Data for ZPID {zpid_input} fetched and added (if not already present).")
+            st.experimental_rerun()  # Refresh to show the new data
+        except Exception as e:
+            st.error(f"An error occurred while fetching data: {e}")
 
 
 # Sidebar Filters
