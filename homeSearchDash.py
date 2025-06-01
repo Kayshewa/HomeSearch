@@ -3,7 +3,8 @@
 #git commit -m "pls commit"
 #git push origin master
 
-#NEXT STEP: INTEGRATE TEMP WEALTH DASHBOARD > HOMESEARCH.IPYNB into UI (add ZPID)
+#NEXT STEP: Suddenly Zillow API Pull stopped working on both local and streamlit - address by working through all the seemingly unrelated df warnings that it seems to throw
+
 
 #Function to call to add new zillow ZPID to Google Sheet:
 
@@ -47,25 +48,34 @@ def fetch_and_update_zillow_data(zpid: str, sheet_url: str):
     pd.DataFrame(column_names).to_csv("zillowattributes.csv", index=False, header=["Column Name"])
 
     # 4. Extract a subset of relevant columns
-    try:
-        shortdf = df[[
-            'zpid', 'streetAddress', 'monthlyHoaFee', 'yearBuilt', 'latitude', 'longitude', 'livingAreaValue',
-            'climate_floodSources_primary_insuranceRecommendation', 'climate_floodSources_primary_riskScore_label',
-            'climate_floodSources_primary_riskScore_value', 'rentZestimate', 'propertyTaxRate', 'timeOnZillow',
-            'url', 'zestimate', 'bedrooms', 'bathrooms', 'zipcode', 'price', 'homeStatus', 'imgSrc',
-            'annualHomeownersInsurance', 'priceHistory_0_date', 'priceHistory_0_event', 'priceHistory_0_price',
-            'priceHistory_1_date', 'priceHistory_1_event', 'priceHistory_1_price', 'priceHistory_2_date',
-            'priceHistory_2_event', 'priceHistory_2_price', 'priceHistory_3_date', 'priceHistory_3_event',
-            'priceHistory_3_price', 'priceHistory_4_date', 'priceHistory_4_event', 'priceHistory_4_price',
-            'priceHistory_5_date', 'priceHistory_5_event', 'priceHistory_5_price', 'schools_0_link',
-            'schools_0_rating', 'schools_0_name', 'schools_1_link', 'schools_1_rating', 'schools_1_name',
-            'homeType', 'resoFacts_taxAssessedValue'
-        ]]
-    except KeyError as e:
-        print(f"Missing key in data: {e}")
-        return
 
-    print(shortdf)
+    desired_columns = [
+        'zpid', 'streetAddress', 'monthlyHoaFee', 'yearBuilt', 'latitude', 'longitude', 'livingAreaValue',
+        'climate_floodSources_primary_insuranceRecommendation', 'climate_floodSources_primary_riskScore_label',
+        'climate_floodSources_primary_riskScore_value', 'rentZestimate', 'propertyTaxRate', 'timeOnZillow',
+        'url', 'zestimate', 'bedrooms', 'bathrooms', 'zipcode', 'price', 'homeStatus', 'imgSrc',
+        'annualHomeownersInsurance', 'priceHistory_0_date', 'priceHistory_0_event', 'priceHistory_0_price',
+        'priceHistory_1_date', 'priceHistory_1_event', 'priceHistory_1_price', 'priceHistory_2_date',
+        'priceHistory_2_event', 'priceHistory_2_price', 'priceHistory_3_date', 'priceHistory_3_event',
+        'priceHistory_3_price', 'priceHistory_4_date', 'priceHistory_4_event', 'priceHistory_4_price',
+        'priceHistory_5_date', 'priceHistory_5_event', 'priceHistory_5_price', 'schools_0_link',
+        'schools_0_rating', 'schools_0_name', 'schools_1_link', 'schools_1_rating', 'schools_1_name',
+        'homeType', 'resoFacts_taxAssessedValue'
+    ]
+
+    # Check which columns exist in the dataframe
+    existing_columns = [col for col in desired_columns if col in df.columns]
+
+    # Create a new DataFrame with existing columns
+    shortdf = df[existing_columns].copy()
+
+    # Add any missing columns with empty strings (or NaN if you prefer)
+    missing_columns = [col for col in desired_columns if col not in df.columns]
+    for col in missing_columns:
+        shortdf[col] = ""  # or use pd.NA if you prefer
+
+    # Optional: reorder columns to match desired_columns order
+    shortdf = shortdf[desired_columns]
 
     # 5.1. Load secrets from secrets.toml
     secrets = toml.load(".streamlit/secrets.toml")  # adjust the path if necessary
@@ -91,6 +101,8 @@ def fetch_and_update_zillow_data(zpid: str, sheet_url: str):
     existing_data = pd.DataFrame(worksheet.get_all_records(expected_headers=expected_headers))
 
     # 7. Append new data if zpid not already present
+    #shortdf['zpid'] = shortdf['zpid'].astype(str)
+    shortdf = shortdf.copy()
     shortdf['zpid'] = shortdf['zpid'].astype(str)
     if 'zpid' not in existing_data.columns:
         worksheet.append_rows([shortdf.iloc[0].astype(str).tolist()], value_input_option='USER_ENTERED')
@@ -101,6 +113,33 @@ def fetch_and_update_zillow_data(zpid: str, sheet_url: str):
 # fetch_and_update_zillow_data("27760224", "https://docs.google.com/spreadsheets/d/1w4suUrGjIhfn_ufYhHJqgYE9V32GEvoCSBgcanjdwms/edit?gid=0#gid=0")
 
 
+def sanitize_dataframe_for_streamlit(df):
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            # Clean stringified 'None' or Python None
+            df[col] = df[col].replace(['None', None], pd.NA)
+
+            # Try coercing to numeric, otherwise convert to string
+            try:
+                df[col] = pd.to_numeric(df[col])
+            except (ValueError, TypeError):
+                df[col] = df[col].astype(str)
+
+    # Special handling for known problematic columns
+    if 'priceHistory_1_price' in df.columns:
+        # Coerce to string to match what Arrow expects if mixed types
+        df['priceHistory_1_price'] = df['priceHistory_1_price'].astype(str)
+
+    if 'rentZestimate' in df.columns:
+        df['rentZestimate'] = pd.to_numeric(df['rentZestimate'], errors='coerce')
+
+    if 'Value' in df.columns:
+        df['Value'] = df['Value'].astype("string")
+
+    # Convert all remaining columns to best types
+    df = df.convert_dtypes()
+
+    return df
 
 
 #The Streamlit UI
@@ -158,6 +197,9 @@ worksheet = spreadsheet.sheet1
 #expected_headers = shortdf.columns.tolist()
 existing_data = pd.DataFrame(worksheet.get_all_records())
 
+#clense for mixed datatypes
+existing_data = sanitize_dataframe_for_streamlit(existing_data)
+
 # Title
 st.title("Kayshewa and Tripi's Final House Explorer v3")
 
@@ -175,7 +217,7 @@ if st.button("Fetch and Add Property"):
         try:
             fetch_and_update_zillow_data(zpid_input.strip(), sheet_url)
             st.success(f"Data for ZPID {zpid_input} fetched and added (if not already present).")
-            st.experimental_rerun()  # Refresh to show the new data
+            st.rerun()  # Refresh to show the new data
         except Exception as e:
             st.error(f"An error occurred while fetching data: {e}")
 
@@ -211,7 +253,8 @@ year_built_range = st.sidebar.slider("Year Built",
 
 # Data Cleaning (Handle missing HOA fees)
 existing_data['monthlyHoaFee'] = pd.to_numeric(existing_data['monthlyHoaFee'], errors='coerce')
-existing_data['monthlyHoaFee'].fillna(0, inplace=True)
+#existing_data['monthlyHoaFee'].fillna(0, inplace=True)
+existing_data['monthlyHoaFee'] = existing_data['monthlyHoaFee'].fillna(0)
 
 # Apply Filters
 filtered_data = existing_data[
@@ -247,6 +290,16 @@ tooltip = {
 # Show number of results
 st.write(f"Showing {len(filtered_data)} matching properties")
 
+
+# Replace 'None' string or None with np.nan, then cast safely
+import numpy as np
+
+for col in ['rentZestimate', 'Value']:
+    if col in existing_data.columns:
+        existing_data[col] = pd.to_numeric(existing_data[col], errors='coerce')
+        
+existing_data = existing_data.convert_dtypes()
+
 #TABLE: Display Raw Data
 st.dataframe(filtered_data)
 
@@ -276,7 +329,8 @@ if not selected_property.empty:
     property_details_transposed = property_details.T.reset_index()
     
     # Rename the columns
-    property_details_transposed.columns = ['Property Detail', 'Value']
+if "Value" in property_details_transposed.columns:
+    property_details_transposed["Value"] = property_details_transposed["Value"].astype("string")
 
     # Display the transposed table
     st.dataframe(property_details_transposed)
