@@ -278,7 +278,23 @@ if st.button("Fetch and Add Property", key="fetch_property_btn"):
 st.sidebar.header("🔍 Filter Listings")
 # In the sidebar
 st.sidebar.subheader("🏘️ Select a Property")
-selected_address = st.sidebar.selectbox("Street Address:", existing_data["streetAddress"].sort_values())
+
+# Initialize session state for selected address if it doesn't exist
+if 'selected_address' not in st.session_state:
+    st.session_state.selected_address = existing_data["streetAddress"].sort_values().iloc[0]
+
+# Use session state for the selectbox
+selected_address = st.sidebar.selectbox(
+    "Street Address:", 
+    existing_data["streetAddress"].sort_values(),
+    index=existing_data["streetAddress"].sort_values().tolist().index(st.session_state.selected_address) 
+    if st.session_state.selected_address in existing_data["streetAddress"].values else 0,
+    key="address_selectbox"
+)
+
+# Update session state when selectbox changes
+if selected_address != st.session_state.selected_address:
+    st.session_state.selected_address = selected_address
 
 
 # Numeric Range Filters
@@ -533,14 +549,16 @@ if clicked_data and 'selection' in clicked_data and clicked_data['selection']['p
     point = clicked_data['selection']['points'][0]
     point_index = point['point_index']
     
-    # Get the zpid of the clicked point
+    # Get the zpid and address of the clicked point
     clicked_zpid = scatter_data.iloc[point_index]['zpid']
+    clicked_address = scatter_data.iloc[point_index]['streetAddress']
     
-    # Update session state
+    # Update session state for both zpid and address
     st.session_state.selected_zpid = clicked_zpid
+    st.session_state.selected_address = clicked_address
     
     # Display the selected zpid
-    st.success(f"Selected Property ZPID: {clicked_zpid}")
+    st.success(f"Selected Property: {clicked_address} (ZPID: {clicked_zpid})")
     st.rerun()
 
 # Display currently selected zpid if any
@@ -552,6 +570,7 @@ if st.session_state.selected_zpid:
 # Add a button to clear selection
 if st.button("Clear Selection"):
     st.session_state.selected_zpid = None
+    # Don't clear selected_address - let user keep their sidebar selection
     st.rerun()
 
 
