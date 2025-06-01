@@ -3,15 +3,13 @@
 #git commit -m "pls commit"
 #git push origin master
 
-#NEXT STEP: Suddenly Zillow API Pull stopped working on both local and streamlit - address by working through all the seemingly unrelated df warnings that it seems to throw
-
-
 #Function to call to add new zillow ZPID to Google Sheet:
 
 import requests
 import pandas as pd
 import gspread
 import toml
+import re
 from oauth2client.service_account import ServiceAccountCredentials
 
 def fetch_and_update_zillow_data(zpid: str, sheet_url: str):
@@ -142,6 +140,36 @@ def sanitize_dataframe_for_streamlit(df):
     return df
 
 
+def extract_zpid_from_url(url):
+    """
+    Extract ZPID from Zillow URL.
+    Supports various Zillow URL formats.
+    """
+    # Common Zillow URL patterns
+    patterns = [
+        r'/(\d+)_zpid/?',  # Standard format: /12345_zpid/
+        r'zpid=(\d+)',     # Query parameter: ?zpid=12345
+        r'/(\d{8,})/?$'    # Direct ZPID at end of URL (8+ digits)
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    
+    return None
+
+def validate_zpid(zpid_str):
+    """
+    Validate that the zpid is a numeric string of reasonable length.
+    """
+    if not zpid_str.isdigit():
+        return False
+    if len(zpid_str) < 6 or len(zpid_str) > 12:  # Reasonable ZPID length
+        return False
+    return True
+
+
 #The Streamlit UI
 
 
@@ -201,25 +229,47 @@ existing_data = pd.DataFrame(worksheet.get_all_records())
 existing_data = sanitize_dataframe_for_streamlit(existing_data)
 
 # Title
-st.title("Kayshewa and Tripi's Final House Explorer v3")
+st.title("Kayshewa and Tripi's Final House Explorer")
 
 
 st.subheader("🔄 Add New Zillow Property by ZPID")
 
-# Input box to enter ZPID
-zpid_input = st.text_input("Enter ZPID:")
+# Input box to enter ZPID or URL
+zpid_input = st.text_input("Enter ZPID or Zillow URL:")
 
 # Button to trigger data fetch and update
-if st.button("Fetch and Add Property"):
+if st.button("Fetch and Add Property", key="fetch_property_btn"):
     if zpid_input.strip() == "":
-        st.warning("Please enter a valid ZPID.")
+        st.warning("Please enter a valid ZPID or Zillow URL.")
     else:
-        try:
-            fetch_and_update_zillow_data(zpid_input.strip(), sheet_url)
-            st.success(f"Data for ZPID {zpid_input} fetched and added (if not already present).")
-            st.rerun()  # Refresh to show the new data
-        except Exception as e:
-            st.error(f"An error occurred while fetching data: {e}")
+        input_value = zpid_input.strip()
+        zpid = None
+        
+        # Check if input is a URL (contains 'zillow.com' or starts with http)
+        if 'zillow.com' in input_value.lower() or input_value.startswith(('http://', 'https://')):
+            # Extract ZPID from URL
+            zpid = extract_zpid_from_url(input_value)
+            if zpid:
+                st.info(f"Extracted ZPID: {zpid}")
+            else:
+                st.error("Could not extract ZPID from the provided URL. Please check the URL format.")
+        elif input_value.isdigit():
+            # Direct ZPID input
+            zpid = input_value
+        else:
+            st.error("Please enter either a valid ZPID (numbers only) or a Zillow URL.")
+        
+        # Proceed if we have a valid ZPID
+        if zpid and validate_zpid(zpid):
+            try:
+                fetch_and_update_zillow_data(zpid, sheet_url)
+                st.success(f"Data for ZPID {zpid} fetched and added (if not already present).")
+                st.rerun()  # Refresh to show the new data
+            except Exception as e:
+                st.error(f"An error occurred while fetching data: {e}")
+        elif zpid:
+            st.error(f"Invalid ZPID format: {zpid}. ZPID should be 6-12 digits.")
+
 
 
 # Sidebar Filters
