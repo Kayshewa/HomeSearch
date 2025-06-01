@@ -10,6 +10,8 @@ import pandas as pd
 import gspread
 import toml
 import re
+import plotly.express as px
+import plotly.graph_objects as go
 from oauth2client.service_account import ServiceAccountCredentials
 
 def fetch_and_update_zillow_data(zpid: str, sheet_url: str):
@@ -474,9 +476,83 @@ st.pydeck_chart(pdk.Deck(
     map_style="mapbox://styles/mapbox/light-v9"
 ))
 
-# Optional: Scatter Plot
-st.subheader("📊 Price vs Living Area")
-st.scatter_chart(filtered_data[["livingAreaValue", "price"]].dropna().rename(columns={"livingAreaValue": "Living Area", "price": "Price"}))
+scatter_data = filtered_data[["livingAreaValue", "price", "streetAddress", "zpid"]].dropna()
+
+# Initialize session state for selected zpid if it doesn't exist
+if 'selected_zpid' not in st.session_state:
+    st.session_state.selected_zpid = None
+
+fig = px.scatter(
+    scatter_data, 
+    x="livingAreaValue", 
+    y="price",
+    hover_data={'streetAddress': True, 'livingAreaValue': True, 'price': True, 'zpid': True},
+    labels={
+        'livingAreaValue': 'Living Area (sqft)',
+        'price': 'Price ($)',
+        'streetAddress': 'Street Address'
+    },
+    title="Price vs Living Area"
+)
+
+# Update hover template
+fig.update_traces(
+    hovertemplate='<b>%{customdata[0]}</b><br>' +
+                  'Living Area: %{x} sqft<br>' +
+                  'Price: $%{y:,.0f}<br>' +
+                  'ZPID: %{customdata[3]}<br>' +
+                  '<extra></extra>',
+    customdata=scatter_data[['streetAddress', 'livingAreaValue', 'price', 'zpid']],
+    marker=dict(color='blue', size=8)
+)
+
+# Add red dot for selected point if one exists
+if st.session_state.selected_zpid:
+    selected_point = scatter_data[scatter_data['zpid'] == st.session_state.selected_zpid]
+    if not selected_point.empty:
+        fig.add_trace(go.Scatter(
+            x=selected_point['livingAreaValue'],
+            y=selected_point['price'],
+            mode='markers',
+            marker=dict(color='red', size=12),
+            name='Selected',
+            hovertemplate='<b>SELECTED: %{customdata[0]}</b><br>' +
+                         'Living Area: %{x} sqft<br>' +
+                         'Price: $%{y:,.0f}<br>' +
+                         'ZPID: %{customdata[3]}<br>' +
+                         '<extra></extra>',
+            customdata=selected_point[['streetAddress', 'livingAreaValue', 'price', 'zpid']]
+        ))
+
+# Display the chart and capture click events
+clicked_data = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points")
+
+# Handle click events
+if clicked_data and 'selection' in clicked_data and clicked_data['selection']['points']:
+    # Get the clicked point
+    point = clicked_data['selection']['points'][0]
+    point_index = point['point_index']
+    
+    # Get the zpid of the clicked point
+    clicked_zpid = scatter_data.iloc[point_index]['zpid']
+    
+    # Update session state
+    st.session_state.selected_zpid = clicked_zpid
+    
+    # Display the selected zpid
+    st.success(f"Selected Property ZPID: {clicked_zpid}")
+    st.rerun()
+
+# Display currently selected zpid if any
+if st.session_state.selected_zpid:
+    selected_property_info = scatter_data[scatter_data['zpid'] == st.session_state.selected_zpid]
+    if not selected_property_info.empty:
+        st.info(f"Currently selected: {selected_property_info.iloc[0]['streetAddress']} (ZPID: {st.session_state.selected_zpid})")
+
+# Add a button to clear selection
+if st.button("Clear Selection"):
+    st.session_state.selected_zpid = None
+    st.rerun()
 
 
 # Ensure that price and zestimate are numeric (in case they're strings)
