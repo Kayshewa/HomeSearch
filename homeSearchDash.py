@@ -752,3 +752,323 @@ if getattr(st.session_state, 'show_all_columns', False):
         selected_row_index = full_table_event.selection.rows[0]
         selected_street_address = filtered_data.iloc[selected_row_index]['streetAddress']
         update_selected_address(selected_street_address)
+
+# Function to save changes back to Google Sheets
+def save_changes_to_sheet(updated_df, worksheet):
+    """
+    Save the updated dataframe back to Google Sheets
+    """
+    # Clear the existing data (except headers)
+    worksheet.clear()
+    
+    # Create a clean copy of the dataframe for saving
+    clean_df = updated_df.copy()
+    
+    # Handle ALL Int64 columns that might have NA values
+    for col in clean_df.columns:
+        if clean_df[col].dtype == 'Int64':
+            # Convert Int64 columns to string, replacing <NA> with empty string
+            clean_df[col] = clean_df[col].astype('string').fillna('')
+        elif clean_df[col].dtype == 'Float64':
+            # Handle Float64 columns similarly
+            clean_df[col] = clean_df[col].astype('string').fillna('')
+        else:
+            # Handle other columns - convert to string and clean problematic values
+            clean_df[col] = clean_df[col].astype(str).replace(['<NA>', 'nan', 'None', 'NaT'], '')
+    
+    # Convert dataframe to list of lists for upload
+    # Include headers
+    headers = clean_df.columns.tolist()
+    values = [headers] + clean_df.values.tolist()
+    
+    # Update the sheet
+    worksheet.update(values, value_input_option='USER_ENTERED')
+
+# ========== EDITABLE SPREADSHEET TABLE ==========
+st.subheader("📋 Editable Property Data Table")
+
+# Define the specific columns we want to edit
+edit_columns = ['Comments', 'tripiApprove', 'kayshewaApprove', 'siteVisit', 'offer']
+
+# Create a copy of filtered data for editing and clean it
+editable_data = filtered_data.copy()
+editable_data = sanitize_dataframe_for_streamlit(editable_data)
+editable_data = editable_data.reset_index(drop=True)
+
+# Add the edit columns if they don't exist, with empty string defaults
+for col in edit_columns:
+    if col not in editable_data.columns:
+        editable_data[col] = ""  # All columns default to empty string
+
+# Keep streetAddress as identifier and the edit columns
+display_columns = ['streetAddress'] + edit_columns
+editable_subset = editable_data[display_columns].copy()
+
+# Ensure all columns are treated as text
+for col in edit_columns:
+    if col in editable_subset.columns:
+        editable_subset[col] = editable_subset[col].astype(str).fillna("")
+
+# Define column configurations for text editing experience
+column_config = {
+    "streetAddress": st.column_config.TextColumn(
+        "Street Address",
+        help="Property street address",
+        disabled=True  # Don't allow editing the address as it's our key
+    ),
+    "Comments": st.column_config.TextColumn(
+        "Comments",
+        help="Additional notes or comments about this property",
+        max_chars=500
+    ),
+    "tripiApprove": st.column_config.TextColumn(
+        "Tripi Approve",
+        help="Tripi's approval status (free text)",
+        max_chars=100
+    ),
+    "kayshewaApprove": st.column_config.TextColumn(
+        "Kayshewa Approve", 
+        help="Kayshewa's approval status (free text)",
+        max_chars=100
+    ),
+    "siteVisit": st.column_config.TextColumn(
+        "Site Visit",
+        help="Site visit status or notes (free text)",
+        max_chars=100
+    ),
+    "offer": st.column_config.TextColumn(
+        "Offer Made",
+        help="Offer status or details (free text)",
+        max_chars=100
+    )
+}
+
+# Add editing mode toggle
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.write("**Edit property approval status and comments:**")
+with col2:
+    editing_enabled = st.toggle("Enable Editing", key="enable_editing")
+
+if editing_enabled:
+    st.warning("⚠️ **Editing Mode Active** - Changes will be saved to Google Sheets when you click 'Save Changes'")
+    
+    try:
+        # Show editable dataframe with only the specified columns
+        edited_df = st.data_editor(
+            editable_subset,
+            column_config=column_config,
+            use_container_width=True,
+            hide_index=True,
+            key="editable_property_table"
+        )
+        
+        # Handle row selection through session state
+        if hasattr(st.session_state, 'editable_property_table'):
+            selection = getattr(st.session_state.editable_property_table, 'selection', None)
+            if selection and hasattr(selection, 'rows') and selection.rows:
+                try:
+                    selected_row_index = selection.rows[0]
+                    if selected_row_index < len(edited_df):
+                        selected_street_address = edited_df.iloc[selected_row_index]['streetAddress']
+                        update_selected_address(selected_street_address)
+                except (IndexError, KeyError):
+                    pass  # Ignore selection errors
+        
+    except Exception as e:
+        st.error(f"Error with editable table: {str(e)}")
+        st.write("Falling back to read-only mode...")
+        edited_df = st.dataframe(
+            editable_subset,
+            use_container_width=True,
+            hide_index=True,
+            on_select="rerun",
+            selection_mode="single-row",
+            key="fallback_table"
+        )
+    
+    # Check for changes and provide save functionality
+    changes_detected = not edited_df.equals(editable_subset)
+    
+    if changes_detected:
+        st.success("✅ Changes detected in the data!")
+        
+        # Show what changed
+        with st.expander("View Changes"):
+            # Find changed rows
+            for idx, (orig_row, edit_row) in enumerate(zip(editable_subset.itertuples(), edited_df.itertuples())):
+                if orig_row != edit_row:
+                    st.write(f"**Row {idx + 1} - {edit_row.streetAddress}:**")
+                    for col in editable_subset.columns:
+                        if col != 'streetAddress':  # Skip the address column
+                            orig_val = getattr(orig_row, col)
+                            edit_val = getattr(edit_row, col)
+                            if orig_val != edit_val:
+                                st.write(f"  • {col}: `{orig_val}` → `{edit_val}`")
+        
+        # Save changes button
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            if st.button("💾 Save Changes to Google Sheets", key="save_changes", type="primary"):
+                try:
+                    # Merge the edited columns back into the full dataset
+                    full_updated_data = existing_data.copy()
+                    
+                    # CRITICAL: Convert Int64 columns to string FIRST before any other operations
+                    for col in edit_columns:
+                        if col in full_updated_data.columns:
+                            # Check if it's an Int64 column and convert to string
+                            if full_updated_data[col].dtype == 'Int64':
+                                # Convert Int64 to string, handling <NA> properly
+                                full_updated_data[col] = full_updated_data[col].astype('string').fillna('')
+                            else:
+                                # For other types, convert to string and clean
+                                full_updated_data[col] = full_updated_data[col].astype(str).replace(['<NA>', 'nan', 'None', 'NaT'], '')
+                        else:
+                            # Add new columns as string type
+                            full_updated_data[col] = ""
+                    
+                    # Now safely update the specific rows that were edited
+                    for idx, row in edited_df.iterrows():
+                        street_addr = row['streetAddress']
+                        # Find matching row in full dataset
+                        mask = full_updated_data['streetAddress'] == street_addr
+                        if mask.any():
+                            # Update the edit columns for this property
+                            for col in edit_columns:
+                                # Ensure the value is a clean string
+                                value = str(row[col]).replace('<NA>', '').replace('nan', '').replace('None', '').replace('NaT', '')
+                                full_updated_data.loc[mask, col] = value
+                    
+                    # Save to Google Sheets
+                    save_changes_to_sheet(full_updated_data, worksheet)
+                    st.success("✅ Changes saved successfully!")
+                    st.rerun()  # Refresh the app to show updated data
+                except Exception as e:
+                    st.error(f"❌ Error saving changes: {str(e)}")
+                    st.write(f"Error details: {type(e).__name__}: {str(e)}")
+                    # Add debug info
+                    st.write("**Debug info:**")
+                    st.write(f"Edited dataframe dtypes: {edited_df.dtypes.to_dict()}")
+                    if 'full_updated_data' in locals():
+                        st.write(f"Full data dtypes: {full_updated_data.dtypes.to_dict()}")
+                        # Show any problematic values
+                        for col in edit_columns:
+                            if col in full_updated_data.columns:
+                                unique_vals = full_updated_data[col].astype(str).unique()[:10]  # Show first 10 unique values
+                                st.write(f"{col} sample values: {unique_vals}")
+    
+else:
+    # Read-only mode with selection
+    st.write("**Read-only mode** - Toggle 'Enable Editing' to make changes")
+    
+    selected_event = st.dataframe(
+        editable_subset,
+        column_config=column_config,
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="readonly_property_table"
+    )
+    
+    # Handle row selection in read-only mode
+    if selected_event and len(selected_event.selection.rows) > 0:
+        selected_row_index = selected_event.selection.rows[0]
+        selected_street_address = editable_subset.iloc[selected_row_index]['streetAddress']
+        update_selected_address(selected_street_address)
+
+# Show summary of text entries (count non-empty values)
+st.write("---")
+st.subheader("📊 Status Summary")
+
+if len(editable_subset) > 0:
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        tripi_entries = editable_subset['tripiApprove'].astype(str).str.strip().ne('').sum() if 'tripiApprove' in editable_subset.columns else 0
+        st.metric("Tripi Entries", f"{tripi_entries}/{len(editable_subset)}")
+    
+    with col2:
+        kayshewa_entries = editable_subset['kayshewaApprove'].astype(str).str.strip().ne('').sum() if 'kayshewaApprove' in editable_subset.columns else 0
+        st.metric("Kayshewa Entries", f"{kayshewa_entries}/{len(editable_subset)}")
+    
+    with col3:
+        site_visit_entries = editable_subset['siteVisit'].astype(str).str.strip().ne('').sum() if 'siteVisit' in editable_subset.columns else 0
+        st.metric("Site Visit Entries", f"{site_visit_entries}/{len(editable_subset)}")
+    
+    with col4:
+        offer_entries = editable_subset['offer'].astype(str).str.strip().ne('').sum() if 'offer' in editable_subset.columns else 0
+        st.metric("Offer Entries", f"{offer_entries}/{len(editable_subset)}")
+
+# Show properties with specific text values (example: look for "approved" or "yes")
+if 'tripiApprove' in editable_subset.columns and 'kayshewaApprove' in editable_subset.columns:
+    # Look for common approval indicators
+    approval_indicators = ['approved', 'approve', 'yes', 'y', 'good', 'ok', 'okay', '✓', 'check']
+    
+    tripi_approved = editable_subset[
+        editable_subset['tripiApprove'].astype(str).str.lower().str.contains('|'.join(approval_indicators), na=False)
+    ]
+    
+    kayshewa_approved = editable_subset[
+        editable_subset['kayshewaApprove'].astype(str).str.lower().str.contains('|'.join(approval_indicators), na=False)
+    ]
+    
+    # Find properties approved by both (intersection)
+    both_approved_addresses = set(tripi_approved['streetAddress']) & set(kayshewa_approved['streetAddress'])
+    both_approved = editable_subset[editable_subset['streetAddress'].isin(both_approved_addresses)]
+    
+    if len(both_approved) > 0:
+        st.success(f"🎉 **{len(both_approved)} Properties with Approval Indicators from Both:**")
+        for _, prop in both_approved.iterrows():
+            st.write(f"• {prop['streetAddress']} (Tripi: '{prop['tripiApprove']}', Kayshewa: '{prop['kayshewaApprove']}')")
+    else:
+        st.info("No properties have approval indicators from both parties yet.")
+
+# Add bulk operations
+st.write("---")
+st.subheader("🔧 Bulk Operations")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    if st.button("📥 Export Approval Data", key="export_approval"):
+        csv_data = (edited_df if editing_enabled and 'edited_df' in locals() else editable_subset).to_csv(index=False)
+        st.download_button(
+            label="Download CSV",
+            data=csv_data,
+            file_name=f"property_approvals_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            mime="text/csv"
+        )
+
+with col2:
+    if st.button("🔄 Refresh from Google Sheets", key="refresh_data"):
+        st.rerun()
+
+with col3:
+    if st.button("↩️ Revert All Changes", key="revert_changes"):
+        if editing_enabled:
+            st.rerun()
+
+# Show current selection info
+current_selection = editable_subset[editable_subset['streetAddress'] == st.session_state.selected_address]
+if not current_selection.empty:
+    row_position = editable_subset.index.get_loc(current_selection.index[0]) + 1
+    total_rows = len(editable_subset)
+    st.info(f"📍 **Selected:** {st.session_state.selected_address} (Row {row_position} of {total_rows})")
+    
+    # Show current status for selected property
+    prop = current_selection.iloc[0]
+    st.write("**Current Status:**")
+    status_cols = st.columns(5)
+    
+    with status_cols[0]:
+        st.write(f"**Comments:** {prop.get('Comments', 'None')}")
+    with status_cols[1]:
+        st.write(f"**Tripi:** {prop.get('tripiApprove', 'Empty')}")
+    with status_cols[2]:
+        st.write(f"**Kayshewa:** {prop.get('kayshewaApprove', 'Empty')}")
+    with status_cols[3]:
+        st.write(f"**Site Visit:** {prop.get('siteVisit', 'Empty')}")
+    with status_cols[4]:
+        st.write(f"**Offer Made:** {prop.get('offer', 'Empty')}")
