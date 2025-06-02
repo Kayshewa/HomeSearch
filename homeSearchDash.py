@@ -275,15 +275,19 @@ if st.button("Fetch and Add Property", key="fetch_property_btn"):
             st.error(f"Invalid ZPID format: {zpid}. ZPID should be 6-12 digits.")
 
 
-
 # Sidebar Filters
 st.sidebar.header("🔍 Filter Listings")
-# In the sidebar
 st.sidebar.subheader("🏘️ Select a Property")
 
 # Initialize session state for selected address if it doesn't exist
 if 'selected_address' not in st.session_state:
     st.session_state.selected_address = existing_data["streetAddress"].sort_values().iloc[0]
+
+# Function to update selected address and trigger rerun
+def update_selected_address(new_address):
+    if new_address != st.session_state.selected_address:
+        st.session_state.selected_address = new_address
+        st.rerun()
 
 # Use session state for the selectbox
 selected_address = st.sidebar.selectbox(
@@ -296,8 +300,7 @@ selected_address = st.sidebar.selectbox(
 
 # Update session state when selectbox changes
 if selected_address != st.session_state.selected_address:
-    st.session_state.selected_address = selected_address
-
+    update_selected_address(selected_address)
 
 # Numeric Range Filters
 price_range = st.sidebar.slider("Price Range ($)", 
@@ -323,7 +326,6 @@ year_built_range = st.sidebar.slider("Year Built",
 
 # Data Cleaning (Handle missing HOA fees)
 existing_data['monthlyHoaFee'] = pd.to_numeric(existing_data['monthlyHoaFee'], errors='coerce')
-#existing_data['monthlyHoaFee'].fillna(0, inplace=True)
 existing_data['monthlyHoaFee'] = existing_data['monthlyHoaFee'].fillna(0)
 
 # Apply Filters
@@ -342,24 +344,20 @@ elif hoa_filter == "With Fee":
     filtered_data = filtered_data[filtered_data["monthlyHoaFee"] > 0]
 
 
-#MAP
-# Interactive Plotly Map - replace your existing map section
-# Add this import at the top: import plotly.express as px, import plotly.graph_objects as go
-
+# ========== INTERACTIVE MAP ==========
 st.subheader("📍 Property Map")
 
-# Prepare map data
 map_data = filtered_data.dropna(subset=["latitude", "longitude"]).copy()
 map_data["latitude"] = pd.to_numeric(map_data["latitude"])
 map_data["longitude"] = pd.to_numeric(map_data["longitude"])
 
-# Add a color column for selected vs unselected properties
+# Add color and size columns for selected vs unselected properties
 map_data['is_selected'] = map_data['streetAddress'] == st.session_state.selected_address
 map_data['color'] = map_data['is_selected'].map({True: 'Selected Property', False: 'Available Properties'})
 map_data['size'] = map_data['is_selected'].map({True: 15, False: 10})
 
-# Create the map using Plotly
-fig = px.scatter_map(
+# Create the map
+fig_map = px.scatter_map(
     map_data,
     lat="latitude",
     lon="longitude",
@@ -379,8 +377,8 @@ fig = px.scatter_map(
         "size": False
     },
     color_discrete_map={
-        'Selected Property': '#DC143C',  # Crimson red
-        'Available Properties': '#4682B4'  # Steel blue
+        'Selected Property': '#DC143C',
+        'Available Properties': '#4682B4'
     },
     size_max=20,
     zoom=11,
@@ -388,87 +386,59 @@ fig = px.scatter_map(
     title="Click on any property to select it"
 )
 
-# Update layout for better appearance
-fig.update_layout(
+fig_map.update_layout(
     mapbox_style="open-street-map",
     margin={"r": 0, "t": 50, "l": 0, "b": 0},
     showlegend=True,
-    legend=dict(
-        yanchor="top",
-        y=0.99,
-        xanchor="left",
-        x=0.01,
-        bgcolor="rgba(255,255,255,0.8)"
-    )
+    legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01, bgcolor="rgba(255,255,255,0.8)")
 )
 
-# Center map on selected property if one exists
+# Center map on selected property
 selected_data = map_data[map_data["streetAddress"] == st.session_state.selected_address]
 if not selected_data.empty:
     prop = selected_data.iloc[0]
-    fig.update_layout(
-        mapbox=dict(
-            center=dict(lat=prop["latitude"], lon=prop["longitude"]),
-            zoom=14
-        )
-    )
+    fig_map.update_layout(mapbox=dict(center=dict(lat=prop["latitude"], lon=prop["longitude"]), zoom=14))
 
-# Display the map and capture click events
-clicked_data = st.plotly_chart(
-    fig, 
-    use_container_width=True, 
-    on_select="rerun",
-    selection_mode="points"
-)
+# Display map and handle clicks
+clicked_data = st.plotly_chart(fig_map, use_container_width=True, on_select="rerun", selection_mode="points")
 
-# Handle click events
 if clicked_data and 'selection' in clicked_data and clicked_data['selection']['points']:
-    # Get the clicked point
     point = clicked_data['selection']['points'][0]
     point_index = point['point_index']
-    
-    # Get the address of the clicked point
     clicked_address = map_data.iloc[point_index]['streetAddress']
-    
-    # Update session state if it's different
-    if clicked_address != st.session_state.selected_address:
-        st.session_state.selected_address = clicked_address
-        st.success(f"🏠 Selected: {clicked_address}")
-        st.rerun()
+    update_selected_address(clicked_address)
 
-
-# Add quick navigation
+# Navigation buttons
 col1, col2, col3 = st.columns(3)
 with col1:
     if st.button("⬅️ Previous", key="map_prev"):
-        addresses = existing_data["streetAddress"].sort_values().tolist()
-        current_idx = addresses.index(st.session_state.selected_address)
-        if current_idx > 0:
-            st.session_state.selected_address = addresses[current_idx - 1]
-            st.rerun()
+        addresses = filtered_data["streetAddress"].sort_values().tolist()
+        if st.session_state.selected_address in addresses:
+            current_idx = addresses.index(st.session_state.selected_address)
+            if current_idx > 0:
+                update_selected_address(addresses[current_idx - 1])
 
 with col2:
     if st.button("🎯 Center Map", key="map_center"):
-        st.rerun()  # Just refresh to center on current selection
+        st.rerun()
 
 with col3:
     if st.button("➡️ Next", key="map_next"):
-        addresses = existing_data["streetAddress"].sort_values().tolist()
-        current_idx = addresses.index(st.session_state.selected_address)
-        if current_idx < len(addresses) - 1:
-            st.session_state.selected_address = addresses[current_idx + 1]
-            st.rerun()
+        addresses = filtered_data["streetAddress"].sort_values().tolist()
+        if st.session_state.selected_address in addresses:
+            current_idx = addresses.index(st.session_state.selected_address)
+            if current_idx < len(addresses) - 1:
+                update_selected_address(addresses[current_idx + 1])
 
-# Display current selection
 st.info(f"📍 **Currently Selected:** {st.session_state.selected_address}")
+
+# ========== INTERACTIVE SCATTER PLOT ==========
+st.subheader("📊 Price vs Living Area")
 
 scatter_data = filtered_data[["livingAreaValue", "price", "streetAddress", "zpid"]].dropna()
 
-# Initialize session state for selected zpid if it doesn't exist
-if 'selected_zpid' not in st.session_state:
-    st.session_state.selected_zpid = None
-
-fig = px.scatter(
+# Create scatter plot with highlighted selected property
+fig_scatter = px.scatter(
     scatter_data, 
     x="livingAreaValue", 
     y="price",
@@ -478,78 +448,163 @@ fig = px.scatter(
         'price': 'Price ($)',
         'streetAddress': 'Street Address'
     },
-    title="Price vs Living Area"
+    title="Click on any point to select that property"
 )
 
-# Update hover template
-fig.update_traces(
+# Update all points to be blue first
+fig_scatter.update_traces(
     hovertemplate='<b>%{customdata[0]}</b><br>' +
                   'Living Area: %{x} sqft<br>' +
                   'Price: $%{y:,.0f}<br>' +
                   'ZPID: %{customdata[3]}<br>' +
                   '<extra></extra>',
     customdata=scatter_data[['streetAddress', 'livingAreaValue', 'price', 'zpid']],
-    marker=dict(color='blue', size=8)
+    marker=dict(color='lightblue', size=8)
 )
 
-# Add red dot for selected point if one exists
-if st.session_state.selected_zpid:
-    selected_point = scatter_data[scatter_data['zpid'] == st.session_state.selected_zpid]
-    if not selected_point.empty:
-        fig.add_trace(go.Scatter(
-            x=selected_point['livingAreaValue'],
-            y=selected_point['price'],
-            mode='markers',
-            marker=dict(color='red', size=12),
-            name='Selected',
-            hovertemplate='<b>SELECTED: %{customdata[0]}</b><br>' +
-                         'Living Area: %{x} sqft<br>' +
-                         'Price: $%{y:,.0f}<br>' +
-                         'ZPID: %{customdata[3]}<br>' +
-                         '<extra></extra>',
-            customdata=selected_point[['streetAddress', 'livingAreaValue', 'price', 'zpid']]
-        ))
+# Add red dot for selected property
+selected_scatter_point = scatter_data[scatter_data['streetAddress'] == st.session_state.selected_address]
+if not selected_scatter_point.empty:
+    fig_scatter.add_trace(go.Scatter(
+        x=selected_scatter_point['livingAreaValue'],
+        y=selected_scatter_point['price'],
+        mode='markers',
+        marker=dict(color='red', size=12, symbol='diamond'),
+        name='Selected Property',
+        hovertemplate='<b>SELECTED: %{customdata[0]}</b><br>' +
+                     'Living Area: %{x} sqft<br>' +
+                     'Price: $%{y:,.0f}<br>' +
+                     'ZPID: %{customdata[3]}<br>' +
+                     '<extra></extra>',
+        customdata=selected_scatter_point[['streetAddress', 'livingAreaValue', 'price', 'zpid']]
+    ))
 
-# Display the chart and capture click events
-clicked_data = st.plotly_chart(fig, use_container_width=True, on_select="rerun", selection_mode="points")
+# Display scatter plot and handle clicks
+clicked_scatter_data = st.plotly_chart(fig_scatter, use_container_width=True, on_select="rerun", selection_mode="points")
 
-# Handle click events
-if clicked_data and 'selection' in clicked_data and clicked_data['selection']['points']:
-    # Get the clicked point
-    point = clicked_data['selection']['points'][0]
-    point_index = point['point_index']
-    
-    # Get the zpid and address of the clicked point
-    clicked_zpid = scatter_data.iloc[point_index]['zpid']
-    clicked_address = scatter_data.iloc[point_index]['streetAddress']
-    
-    # Update session state for both zpid and address
-    st.session_state.selected_zpid = clicked_zpid
-    st.session_state.selected_address = clicked_address
-    
-    # Display the selected zpid
-    st.success(f"Selected Property: {clicked_address} (ZPID: {clicked_zpid})")
-    st.rerun()
+if clicked_scatter_data and 'selection' in clicked_scatter_data and clicked_scatter_data['selection']['points']:
+    point = clicked_scatter_data['selection']['points'][0]
+    # Handle clicks on the main scatter points (trace 0)
+    if point.get('curve_number', 0) == 0:
+        point_index = point['point_index']
+        clicked_address = scatter_data.iloc[point_index]['streetAddress']
+        update_selected_address(clicked_address)
 
-# Display currently selected zpid if any
-if st.session_state.selected_zpid:
-    selected_property_info = scatter_data[scatter_data['zpid'] == st.session_state.selected_zpid]
-    if not selected_property_info.empty:
-        st.info(f"Currently selected: {selected_property_info.iloc[0]['streetAddress']} (ZPID: {st.session_state.selected_zpid})")
+# ========== INTERACTIVE BAR CHART ==========
+st.subheader("💰 Price vs Zestimate Comparison")
 
-# Add a button to clear selection
-if st.button("Clear Selection"):
-    st.session_state.selected_zpid = None
-    # Don't clear selected_address - let user keep their sidebar selection
-    st.rerun()
-
-
-# Ensure that price and zestimate are numeric (in case they're strings)
+# Prepare data for bar chart
 filtered_data['price'] = pd.to_numeric(filtered_data['price'], errors='coerce')
 filtered_data['zestimate'] = pd.to_numeric(filtered_data['zestimate'], errors='coerce')
 
-# Create a DataFrame with properties as the index and 'price' and 'zestimate' as columns
-comparison_df = filtered_data[['streetAddress', 'price', 'zestimate']].set_index('streetAddress')
+bar_data = filtered_data[['streetAddress', 'price', 'zestimate']].dropna()
 
-# Display a bar chart comparing Price and Zestimate for each property
-st.bar_chart(comparison_df)
+# Create interactive bar chart
+fig_bar = go.Figure()
+
+# Add price bars
+fig_bar.add_trace(go.Bar(
+    name='Listed Price',
+    x=bar_data['streetAddress'],
+    y=bar_data['price'],
+    marker_color='lightblue',
+    hovertemplate='<b>%{x}</b><br>Listed Price: $%{y:,.0f}<extra></extra>'
+))
+
+# Add zestimate bars
+fig_bar.add_trace(go.Bar(
+    name='Zestimate',
+    x=bar_data['streetAddress'],
+    y=bar_data['zestimate'],
+    marker_color='lightcoral',
+    hovertemplate='<b>%{x}</b><br>Zestimate: $%{y:,.0f}<extra></extra>'
+))
+
+# Highlight selected property
+selected_bar_data = bar_data[bar_data['streetAddress'] == st.session_state.selected_address]
+if not selected_bar_data.empty:
+    # Add highlighted bars for selected property
+    fig_bar.add_trace(go.Bar(
+        name='Selected - Listed Price',
+        x=[st.session_state.selected_address],
+        y=[selected_bar_data['price'].iloc[0]],
+        marker_color='darkblue',
+        showlegend=False,
+        hovertemplate='<b>SELECTED: %{x}</b><br>Listed Price: $%{y:,.0f}<extra></extra>'
+    ))
+    
+    fig_bar.add_trace(go.Bar(
+        name='Selected - Zestimate',
+        x=[st.session_state.selected_address],
+        y=[selected_bar_data['zestimate'].iloc[0]],
+        marker_color='darkred',
+        showlegend=False,
+        hovertemplate='<b>SELECTED: %{x}</b><br>Zestimate: $%{y:,.0f}<extra></extra>'
+    ))
+
+fig_bar.update_layout(
+    title="Click on any bar to select that property",
+    xaxis_title="Property Address",
+    yaxis_title="Price ($)",
+    barmode='group',
+    xaxis={'categoryorder': 'total descending'},
+    height=500
+)
+
+# Make x-axis labels more readable
+fig_bar.update_xaxes(tickangle=45)
+
+# Display bar chart and handle clicks
+clicked_bar_data = st.plotly_chart(fig_bar, use_container_width=True, on_select="rerun", selection_mode="points")
+
+if clicked_bar_data and 'selection' in clicked_bar_data and clicked_bar_data['selection']['points']:
+    point = clicked_bar_data['selection']['points'][0]
+    # Get the address from the clicked point
+    clicked_address = point['x']
+    update_selected_address(clicked_address)
+
+# ========== PROPERTY DETAILS SECTION ==========
+st.subheader("🏠 Selected Property Details")
+
+selected_property = existing_data[existing_data['streetAddress'] == st.session_state.selected_address]
+if not selected_property.empty:
+    prop = selected_property.iloc[0]
+    
+    # Create columns for property details
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Listed Price", f"${prop['price']:,.0f}")
+        st.metric("Bedrooms", f"{prop['bedrooms']}")
+        st.metric("Year Built", f"{prop['yearBuilt']}")
+    
+    with col2:
+        st.metric("Zestimate", f"${prop['zestimate']:,.0f}")
+        st.metric("Bathrooms", f"{prop['bathrooms']}")
+        st.metric("Living Area", f"{prop['livingAreaValue']:,.0f} sqft")
+    
+    with col3:
+        price_diff = prop['price'] - prop['zestimate']
+        st.metric("Price vs Zestimate", f"${price_diff:,.0f}", 
+                 delta=f"{((price_diff/prop['zestimate'])*100):+.1f}%")
+        st.metric("Monthly HOA", f"${prop['monthlyHoaFee']:,.0f}")
+        if prop['url']:
+            st.markdown(f"[View on Zillow]({prop['url']})")
+
+# ========== SUMMARY STATISTICS ==========
+st.subheader("📈 Summary Statistics")
+
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric("Total Properties", len(filtered_data))
+with col2:
+    st.metric("Avg Price", f"${filtered_data['price'].mean():,.0f}")
+with col3:
+    st.metric("Avg Living Area", f"{filtered_data['livingAreaValue'].mean():,.0f} sqft")
+with col4:
+    st.metric("Avg Price/sqft", f"${(filtered_data['price']/filtered_data['livingAreaValue']).mean():.0f}")
+
+# Add a reset button
+if st.button("🔄 Reset Selection to First Property"):
+    first_address = filtered_data["streetAddress"].sort_values().iloc[0]
+    update_selected_address(first_address)
