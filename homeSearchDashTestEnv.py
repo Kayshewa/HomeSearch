@@ -233,7 +233,7 @@ existing_data = pd.DataFrame(worksheet.get_all_records())
 existing_data = sanitize_dataframe_for_streamlit(existing_data)
 
 # Title
-st.title("Kayshewa and Tripi's Final House Explorer")
+st.title("Kayshewa and Tripi's Final House Explorer Test Env")
 
 
 st.subheader("🔄 Add New Zillow Property by ZPID")
@@ -342,125 +342,11 @@ elif hoa_filter == "With Fee":
     filtered_data = filtered_data[filtered_data["monthlyHoaFee"] > 0]
 
 
-#MAP
-# Interactive Plotly Map - replace your existing map section
-# Add this import at the top: import plotly.express as px, import plotly.graph_objects as go
-
-st.subheader("📍 Property Map")
-
-# Prepare map data
-map_data = filtered_data.dropna(subset=["latitude", "longitude"]).copy()
-map_data["latitude"] = pd.to_numeric(map_data["latitude"])
-map_data["longitude"] = pd.to_numeric(map_data["longitude"])
-
-# Add a color column for selected vs unselected properties
-map_data['is_selected'] = map_data['streetAddress'] == st.session_state.selected_address
-map_data['color'] = map_data['is_selected'].map({True: 'Selected Property', False: 'Available Properties'})
-map_data['size'] = map_data['is_selected'].map({True: 15, False: 10})
-
-# Create the map using Plotly
-fig = px.scatter_map(
-    map_data,
-    lat="latitude",
-    lon="longitude",
-    color="color",
-    size="size",
-    hover_name="streetAddress",
-    hover_data={
-        "price": ":$,.0f",
-        "bedrooms": True,
-        "bathrooms": True,
-        "yearBuilt": True,
-        "livingAreaValue": ":,.0f",
-        "latitude": False,
-        "longitude": False,
-        "is_selected": False,
-        "color": False,
-        "size": False
-    },
-    color_discrete_map={
-        'Selected Property': '#DC143C',  # Crimson red
-        'Available Properties': '#4682B4'  # Steel blue
-    },
-    size_max=20,
-    zoom=11,
-    height=600,
-    title="Click on any property to select it"
-)
-
-# Update layout for better appearance
-fig.update_layout(
-    mapbox_style="open-street-map",
-    margin={"r": 0, "t": 50, "l": 0, "b": 0},
-    showlegend=True,
-    legend=dict(
-        yanchor="top",
-        y=0.99,
-        xanchor="left",
-        x=0.01,
-        bgcolor="rgba(255,255,255,0.8)"
-    )
-)
-
-# Center map on selected property if one exists
-selected_data = map_data[map_data["streetAddress"] == st.session_state.selected_address]
-if not selected_data.empty:
-    prop = selected_data.iloc[0]
-    fig.update_layout(
-        mapbox=dict(
-            center=dict(lat=prop["latitude"], lon=prop["longitude"]),
-            zoom=14
-        )
-    )
-
-# Display the map and capture click events
-clicked_data = st.plotly_chart(
-    fig, 
-    use_container_width=True, 
-    on_select="rerun",
-    selection_mode="points"
-)
-
-# Handle click events
-if clicked_data and 'selection' in clicked_data and clicked_data['selection']['points']:
-    # Get the clicked point
-    point = clicked_data['selection']['points'][0]
-    point_index = point['point_index']
-    
-    # Get the address of the clicked point
-    clicked_address = map_data.iloc[point_index]['streetAddress']
-    
-    # Update session state if it's different
-    if clicked_address != st.session_state.selected_address:
-        st.session_state.selected_address = clicked_address
-        st.success(f"🏠 Selected: {clicked_address}")
-        st.rerun()
-
-
-# Add quick navigation
-col1, col2, col3 = st.columns(3)
-with col1:
-    if st.button("⬅️ Previous", key="map_prev"):
-        addresses = existing_data["streetAddress"].sort_values().tolist()
-        current_idx = addresses.index(st.session_state.selected_address)
-        if current_idx > 0:
-            st.session_state.selected_address = addresses[current_idx - 1]
-            st.rerun()
-
-with col2:
-    if st.button("🎯 Center Map", key="map_center"):
-        st.rerun()  # Just refresh to center on current selection
-
-with col3:
-    if st.button("➡️ Next", key="map_next"):
-        addresses = existing_data["streetAddress"].sort_values().tolist()
-        current_idx = addresses.index(st.session_state.selected_address)
-        if current_idx < len(addresses) - 1:
-            st.session_state.selected_address = addresses[current_idx + 1]
-            st.rerun()
-
-# Display current selection
-st.info(f"📍 **Currently Selected:** {st.session_state.selected_address}")
+# Map display
+# MAP: Ensure lat/lon are numeric
+filtered_data = filtered_data.dropna(subset=["latitude", "longitude"])
+filtered_data["latitude"] = pd.to_numeric(filtered_data["latitude"])
+filtered_data["longitude"] = pd.to_numeric(filtered_data["longitude"])
 
 scatter_data = filtered_data[["livingAreaValue", "price", "streetAddress", "zpid"]].dropna()
 
@@ -553,3 +439,122 @@ comparison_df = filtered_data[['streetAddress', 'price', 'zestimate']].set_index
 
 # Display a bar chart comparing Price and Zestimate for each property
 st.bar_chart(comparison_df)
+
+# Enhanced map section with reliable selection - replace your existing map code
+# Interactive Plotly Map - replace your existing map section
+# Add this import at the top: import plotly.express as px, import plotly.graph_objects as go
+
+st.subheader("📍 Property Map")
+
+# Prepare map data
+map_data = filtered_data.dropna(subset=["latitude", "longitude"]).copy()
+map_data["latitude"] = pd.to_numeric(map_data["latitude"])
+map_data["longitude"] = pd.to_numeric(map_data["longitude"])
+
+# Add a color column for selected vs unselected properties
+map_data['is_selected'] = map_data['streetAddress'] == st.session_state.selected_address
+map_data['color'] = map_data['is_selected'].map({True: 'Selected Property', False: 'Available Properties'})
+map_data['size'] = map_data['is_selected'].map({True: 15, False: 10})
+
+# Create the map using Plotly
+fig = px.scatter_mapbox(
+    map_data,
+    lat="latitude",
+    lon="longitude",
+    color="color",
+    size="size",
+    hover_name="streetAddress",
+    hover_data={
+        "price": ":$,.0f",
+        "bedrooms": True,
+        "bathrooms": True,
+        "yearBuilt": True,
+        "livingAreaValue": ":,.0f",
+        "latitude": False,
+        "longitude": False,
+        "is_selected": False,
+        "color": False,
+        "size": False
+    },
+    color_discrete_map={
+        'Selected Property': '#DC143C',  # Crimson red
+        'Available Properties': '#4682B4'  # Steel blue
+    },
+    size_max=20,
+    zoom=11,
+    height=600,
+    title="Click on any property to select it"
+)
+
+# Update layout for better appearance
+fig.update_layout(
+    mapbox_style="open-street-map",
+    margin={"r": 0, "t": 50, "l": 0, "b": 0},
+    showlegend=True,
+    legend=dict(
+        yanchor="top",
+        y=0.99,
+        xanchor="left",
+        x=0.01,
+        bgcolor="rgba(255,255,255,0.8)"
+    )
+)
+
+# Center map on selected property if one exists
+selected_data = map_data[map_data["streetAddress"] == st.session_state.selected_address]
+if not selected_data.empty:
+    prop = selected_data.iloc[0]
+    fig.update_layout(
+        mapbox=dict(
+            center=dict(lat=prop["latitude"], lon=prop["longitude"]),
+            zoom=14
+        )
+    )
+
+# Display the map and capture click events
+clicked_data = st.plotly_chart(
+    fig, 
+    use_container_width=True, 
+    on_select="rerun",
+    selection_mode="points"
+)
+
+# Handle click events
+if clicked_data and 'selection' in clicked_data and clicked_data['selection']['points']:
+    # Get the clicked point
+    point = clicked_data['selection']['points'][0]
+    point_index = point['point_index']
+    
+    # Get the address of the clicked point
+    clicked_address = map_data.iloc[point_index]['streetAddress']
+    
+    # Update session state if it's different
+    if clicked_address != st.session_state.selected_address:
+        st.session_state.selected_address = clicked_address
+        st.success(f"🏠 Selected: {clicked_address}")
+        st.rerun()
+
+# Display current selection
+st.info(f"📍 **Currently Selected:** {st.session_state.selected_address}")
+
+# Add quick navigation
+col1, col2, col3 = st.columns(3)
+with col1:
+    if st.button("⬅️ Previous", key="map_prev"):
+        addresses = existing_data["streetAddress"].sort_values().tolist()
+        current_idx = addresses.index(st.session_state.selected_address)
+        if current_idx > 0:
+            st.session_state.selected_address = addresses[current_idx - 1]
+            st.rerun()
+
+with col2:
+    if st.button("🎯 Center Map", key="map_center"):
+        st.rerun()  # Just refresh to center on current selection
+
+with col3:
+    if st.button("➡️ Next", key="map_next"):
+        addresses = existing_data["streetAddress"].sort_values().tolist()
+        current_idx = addresses.index(st.session_state.selected_address)
+        if current_idx < len(addresses) - 1:
+            st.session_state.selected_address = addresses[current_idx + 1]
+            st.rerun()
