@@ -608,3 +608,147 @@ with col4:
 if st.button("🔄 Reset Selection to First Property"):
     first_address = filtered_data["streetAddress"].sort_values().iloc[0]
     update_selected_address(first_address)
+
+
+# ========== INTERACTIVE SPREADSHEET TABLE ==========
+st.subheader("📋 Property Data Table")
+
+# Prepare data for the table - select key columns for better display
+table_columns = [
+    'streetAddress', 'price', 'zestimate', 'bedrooms', 'bathrooms', 
+    'livingAreaValue', 'yearBuilt', 'monthlyHoaFee', 'homeStatus', 'zipcode'
+]
+
+# Create display DataFrame with only existing columns
+display_columns = [col for col in table_columns if col in filtered_data.columns]
+table_data = filtered_data[display_columns].copy()
+
+# Format the data for better display
+if 'price' in table_data.columns:
+    table_data['price'] = table_data['price'].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
+if 'zestimate' in table_data.columns:
+    table_data['zestimate'] = table_data['zestimate'].apply(lambda x: f"${x:,.0f}" if pd.notna(x) else "N/A")
+if 'livingAreaValue' in table_data.columns:
+    table_data['livingAreaValue'] = table_data['livingAreaValue'].apply(lambda x: f"{x:,.0f} sqft" if pd.notna(x) else "N/A")
+if 'monthlyHoaFee' in table_data.columns:
+    table_data['monthlyHoaFee'] = table_data['monthlyHoaFee'].apply(lambda x: f"${x:,.0f}" if pd.notna(x) and x > 0 else "No Fee")
+
+# Rename columns for better display
+column_renames = {
+    'streetAddress': 'Street Address',
+    'price': 'Listed Price',
+    'zestimate': 'Zestimate',
+    'bedrooms': 'Beds',
+    'bathrooms': 'Baths',
+    'livingAreaValue': 'Living Area',
+    'yearBuilt': 'Year Built',
+    'monthlyHoaFee': 'Monthly HOA',
+    'homeStatus': 'Status',
+    'zipcode': 'ZIP Code'
+}
+
+table_data = table_data.rename(columns=column_renames)
+
+# Find the index of the currently selected property
+selected_index = None
+if st.session_state.selected_address in filtered_data['streetAddress'].values:
+    selected_index = filtered_data[filtered_data['streetAddress'] == st.session_state.selected_address].index[0]
+    # Convert to position in filtered data
+    selected_index = filtered_data.index.get_loc(selected_index)
+
+# Create the interactive dataframe
+st.write("**Click on any row to select that property:**")
+
+# Use st.dataframe with selection
+event = st.dataframe(
+    table_data,
+    use_container_width=True,
+    hide_index=True,
+    on_select="rerun",
+    selection_mode="single-row",
+    key="property_table"
+)
+
+# Handle row selection
+if event and len(event.selection.rows) > 0:
+    selected_row_index = event.selection.rows[0]
+    
+    # Get the street address from the filtered data (not the display table)
+    selected_street_address = filtered_data.iloc[selected_row_index]['streetAddress']
+    
+    # Update the selected address
+    update_selected_address(selected_street_address)
+
+# Add table navigation controls
+st.write("---")
+col1, col2, col3, col4 = st.columns(4)
+
+with col1:
+    if st.button("⬆️ First Property", key="table_first"):
+        first_address = filtered_data["streetAddress"].sort_values().iloc[0]
+        update_selected_address(first_address)
+
+with col2:
+    if st.button("⬅️ Previous Property", key="table_prev"):
+        addresses = filtered_data["streetAddress"].sort_values().tolist()
+        if st.session_state.selected_address in addresses:
+            current_idx = addresses.index(st.session_state.selected_address)
+            if current_idx > 0:
+                update_selected_address(addresses[current_idx - 1])
+
+with col3:
+    if st.button("➡️ Next Property", key="table_next"):
+        addresses = filtered_data["streetAddress"].sort_values().tolist()
+        if st.session_state.selected_address in addresses:
+            current_idx = addresses.index(st.session_state.selected_address)
+            if current_idx < len(addresses) - 1:
+                update_selected_address(addresses[current_idx + 1])
+
+with col4:
+    if st.button("⬇️ Last Property", key="table_last"):
+        last_address = filtered_data["streetAddress"].sort_values().iloc[-1]
+        update_selected_address(last_address)
+
+# Show current selection info
+current_row = filtered_data[filtered_data['streetAddress'] == st.session_state.selected_address]
+if not current_row.empty:
+    row_position = filtered_data.index.get_loc(current_row.index[0]) + 1
+    total_rows = len(filtered_data)
+    st.info(f"📍 **Selected:** {st.session_state.selected_address} (Row {row_position} of {total_rows})")
+
+# Add option to export filtered data
+st.write("---")
+col1, col2 = st.columns(2)
+
+with col1:
+    # Export to CSV
+    csv_data = filtered_data.to_csv(index=False)
+    st.download_button(
+        label="📥 Download Filtered Data (CSV)",
+        data=csv_data,
+        file_name=f"filtered_properties_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv"
+    )
+
+with col2:
+    # Show/hide all columns toggle
+    if st.button("👁️ Toggle All Columns View", key="toggle_columns"):
+        st.session_state.show_all_columns = not getattr(st.session_state, 'show_all_columns', False)
+
+# Optional: Show all columns view
+if getattr(st.session_state, 'show_all_columns', False):
+    st.write("**Full Data View (All Columns):**")
+    full_table_event = st.dataframe(
+        filtered_data,
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="full_property_table"
+    )
+    
+    # Handle selection from full table
+    if full_table_event and len(full_table_event.selection.rows) > 0:
+        selected_row_index = full_table_event.selection.rows[0]
+        selected_street_address = filtered_data.iloc[selected_row_index]['streetAddress']
+        update_selected_address(selected_street_address)
